@@ -73,9 +73,13 @@
     if (v === 'none') return null;
     if (v === 'custom') {
       var n = parseInt(customSizeInput.value, 10);
-      return isNaN(n) || n < 1 ? null : n * 1024;
+      if (isNaN(n) || n < 1) return null;
+      // 自定义也加安全余量：给浏览器重新编码留出空间
+      return Math.round(n * 1024 * 0.85);
     }
-    return parseInt(v, 10) * 1024;
+    var kb = parseInt(v, 10);
+    // 留出 15% 的安全余量：因为手机保存时浏览器可能会重新编码，文件会略有变大
+    return Math.round(kb * 1024 * 0.85);
   }
 
   /* ---------- 图片加载 ---------- */
@@ -227,8 +231,8 @@
     targetNote.textContent = isNone
       ? '手动调节质量，不限制最终大小。'
       : isCustom
-        ? '将自动调整质量与尺寸，尽量达到自定义目标。'
-        : '将自动调整质量与尺寸，尽量达到目标大小。';
+        ? '将自动压缩到略小于目标，为手机端保存留出余量。'
+        : '将自动压缩到略小于目标，为手机端保存留出余量。';
   }
 
   function updateFormatNote() {
