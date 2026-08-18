@@ -333,17 +333,20 @@
     var tensor = new ort.Tensor('float32', input, [1, 3, ph, pw]);
     var results = await session.run({ input: tensor });
     var od = results.output.data;
-    // 裁剪回原尺寸（输出为 4 倍）
+    // 裁剪回原尺寸（输出为 4 倍）。
+    // 模型输出为 NCHW 布局：R、G、B 三个通道各自连续存放，
+    // 每个通道的大小 = (ph*4) * (pw*4)。
     var outW = w * 4, outH = h * 4;
     var out = new Float32Array(3 * outH * outW);
     var srcRow = pw * 4;
+    var srcChan = srcRow * (ph * 4);
     for (var yy = 0; yy < outH; yy++) {
       for (var xx = 0; xx < outW; xx++) {
         var s = yy * srcRow + xx;
         var t = yy * outW + xx;
         out[t] = od[s];
-        out[outH * outW + t] = od[ph * pw * 4 + s];
-        out[2 * outH * outW + t] = od[2 * ph * pw * 4 + s];
+        out[outH * outW + t] = od[srcChan + s];
+        out[2 * outH * outW + t] = od[2 * srcChan + s];
       }
     }
     return { data: out, width: outW, height: outH };
