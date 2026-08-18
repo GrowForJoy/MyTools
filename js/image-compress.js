@@ -54,6 +54,15 @@
     return mime === 'image/webp' ? 'WebP' : mime === 'image/png' ? 'PNG' : 'JPEG';
   }
 
+  function blobToDataURL(blob) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
   function getSelectedFormat() {
     var checked = document.querySelector('input[name="format"]:checked');
     return checked ? checked.value : 'image/jpeg';
@@ -262,7 +271,7 @@
       afterUrl = URL.createObjectURL(result.blob);
 
       beforeImg.src = beforeUrl;
-      afterImg.src = afterUrl;
+      afterImg.src = await blobToDataURL(result.blob);
       beforeSize.textContent = formatBytes(beforeBytes);
       afterSize.textContent = formatBytes(afterBytes);
       beforeDim.textContent = currentSource.width + ' × ' + currentSource.height;
