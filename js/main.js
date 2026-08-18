@@ -1,3 +1,12 @@
+/* 百度统计 */
+window._hmt = window._hmt || [];
+(function () {
+  var hm = document.createElement('script');
+  hm.src = 'https://hm.baidu.com/hm.js?c9aa0c182d8cfef390f62b7d7879e73b';
+  var s = document.getElementsByTagName('script')[0];
+  s.parentNode.insertBefore(hm, s);
+})();
+
 /* 全局脚本：主题切换 */
 (function () {
   var root = document.documentElement;

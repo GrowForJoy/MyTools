@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var MODEL_URL = '../js/lib/realesr-general-x4v3.onnx';
-  var WASM_PATH = new URL('../js/lib/onnx/', location.href).href;
+  // 模型与运行库优先走 jsdelivr CDN（国内访问更快），失败回退本地
+  var LOCAL_BASE = new URL('../js/lib/', location.href).href;
+  var CDN_BASE = 'https://cdn.jsdelivr.net/gh/growforjoy/MyTools@main/js/lib/';
 
   var originalImg = null;
   var originalData = null;
@@ -286,13 +287,74 @@
     if (pct !== undefined) aiProgressBar.style.width = Math.round(pct * 100) + '%';
   }
 
+  // 带进度的手动下载（模型文件较大，避免无反馈的长时间等待）
+  async function fetchWithProgress(url, onProgress, timeoutMs) {
+    var timeout = new Promise(function (_, reject) {
+      setTimeout(function () { reject(new Error('下载超时')); }, timeoutMs || 90000);
+    });
+    var resp = await Promise.race([fetch(url), timeout]);
+    if (!resp.ok) throw new Error('模型下载失败（HTTP ' + resp.status + '）');
+    var total = parseInt(resp.headers.get('Content-Length'), 10) || 0;
+    if (!resp.body || !total) return await resp.arrayBuffer();
+    var reader = resp.body.getReader();
+    var chunks = [];
+    var received = 0;
+    while (true) {
+      var r = await reader.read();
+      if (r.done) break;
+      chunks.push(r.value);
+      received += r.value.length;
+      if (onProgress) onProgress(received / total);
+    }
+    var buf = new Uint8Array(received);
+    var offset = 0;
+    for (var i = 0; i < chunks.length; i++) {
+      buf.set(chunks[i], offset);
+      offset += chunks[i].length;
+    }
+    return buf.buffer;
+  }
+
   async function ensureSession() {
     if (ortSession) return ortSession;
-    setAIStatus(true, '正在加载 AI 模型…');
-    ort.env.wasm.wasmPaths = WASM_PATH;
-    ortSession = await ort.InferenceSession.create(MODEL_URL, {
-      executionProviders: ['wasm']
+
+    // 先试 CDN，失败回退本地
+    var modelBuf = null;
+    var wasmPath = null;
+    try {
+      modelBuf = await fetchWithProgress(CDN_BASE + 'realesr-general-x4v3.onnx', function (p) {
+        setAIStatus(true, '正在下载 AI 模型 ' + Math.round(p * 100) + '%…');
+      }, 20000);
+      wasmPath = CDN_BASE + 'onnx/';
+    } catch (e) {
+      try {
+        modelBuf = await fetchWithProgress(LOCAL_BASE + 'realesr-general-x4v3.onnx', function (p) {
+          setAIStatus(true, '正在下载 AI 模型 ' + Math.round(p * 100) + '%…');
+        });
+        wasmPath = LOCAL_BASE + 'onnx/';
+      } catch (e2) {
+        setAIStatus(true, 'AI 模型下载失败：' + (e2 && e2.message ? e2.message : '请检查网络后重试'));
+        throw e2;
+      }
+    }
+
+    ort.env.wasm.wasmPaths = wasmPath;
+    setAIStatus(true, '正在初始化 AI 引擎（首次需加载运行库，请耐心等待）…');
+    var timeout = new Promise(function (_, reject) {
+      setTimeout(function () {
+        reject(new Error('加载超时（超过 90 秒）。首次使用需下载约 17MB 模型和运行库，网络较慢时请耐心等待，或检查网络后重试。'));
+      }, 90000);
     });
+
+    try {
+      ortSession = await Promise.race([
+        ort.InferenceSession.create(modelBuf, { executionProviders: ['wasm'] }),
+        timeout
+      ]);
+    } catch (e) {
+      setAIStatus(true, 'AI 模型加载失败：' + (e && e.message ? e.message : '未知错误'));
+      throw e;
+    }
     return ortSession;
   }
 
@@ -310,6 +372,12 @@
       }
     }
     return tile;
+  }
+
+  // 模型输出为 [-1,1]，需映射回 [0,255]
+  function out255(v) {
+    v = (v + 1) / 2 * 255;
+    return v < 0 ? 0 : (v > 255 ? 255 : Math.round(v));
   }
 
   async function runModelOnTile(session, tile) {
@@ -423,9 +491,9 @@
           var td = tImg.data;
           for (var p = 0; p < ow * oh; p++) {
             var q = p * 4;
-            td[q] = Math.round(od[p] * 255);
-            td[q + 1] = Math.round(od[ow * oh + p] * 255);
-            td[q + 2] = Math.round(od[2 * ow * oh + p] * 255);
+            td[q] = out255(od[p]);
+            td[q + 1] = out255(od[ow * oh + p]);
+            td[q + 2] = out255(od[2 * ow * oh + p]);
             td[q + 3] = 255;
           }
           tctx.putImageData(tImg, 0, 0);
