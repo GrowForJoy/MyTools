@@ -592,6 +592,17 @@ a { color: var(--accent); }
   gap: 14px;
   flex-wrap: wrap;
 }
+.mobile-save-hint {
+  width: 100%;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
 .tips {
   margin-top: 30px;
   border: 1px solid var(--line);

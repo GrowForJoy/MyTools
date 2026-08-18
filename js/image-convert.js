@@ -30,11 +30,14 @@
   var statFormat = document.getElementById('statFormat');
   var downloadBtn = document.getElementById('downloadBtn');
   var againBtn = document.getElementById('againBtn');
+  var mobileHint = document.getElementById('mobileHint');
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.innerWidth < 768);
 
   var currentFile = null;
   var currentSource = null;
   var beforeUrl = null;
   var afterUrl = null;
+  var currentResultBlob = null;
 
   /* ---------- 工具函数 ---------- */
   function formatBytes(bytes) {
@@ -148,6 +151,8 @@
     if (currentSource) { currentSource.close(); currentSource = null; }
     fileInfo.classList.remove('show');
     resetResult();
+    currentResultBlob = null;
+    mobileHint.classList.add('hidden');
     convertBtn.disabled = true;
     fileInput.value = '';
   }
@@ -175,6 +180,7 @@
       currentSource = await loadSource(currentFile);
 
       var blob = await currentSource.render(currentSource.width, currentSource.height, mime, q);
+      currentResultBlob = blob;
       var beforeBytes = currentFile.size;
       var afterBytes = blob.size;
       var diffPercent = Math.round(((afterBytes - beforeBytes) / beforeBytes) * 100);
@@ -199,6 +205,7 @@
       downloadBtn.download = base + '.' + (mime === 'image/webp' ? 'webp' : mime === 'image/png' ? 'png' : 'jpg');
 
       resultEl.classList.add('show');
+      if (isMobile) mobileHint.classList.remove('hidden');
     } catch (err) {
       alert(err && err.message ? err.message : '转换失败，请重试');
     } finally {
@@ -233,6 +240,15 @@
   againBtn.addEventListener('click', function () {
     clearFile();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  downloadBtn.addEventListener('click', function (e) {
+    if (!isMobile || !currentResultBlob) return;
+    e.preventDefault();
+    var file = new File([currentResultBlob], downloadBtn.download, { type: getSelectedFormat() });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: '转换图片', text: '转换后的图片' }).catch(function () {});
+    }
   });
 
   qualityInput.addEventListener('input', function () {

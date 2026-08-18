@@ -34,11 +34,14 @@
   var statFormat = document.getElementById('statFormat');
   var downloadBtn = document.getElementById('downloadBtn');
   var againBtn = document.getElementById('againBtn');
+  var mobileHint = document.getElementById('mobileHint');
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.innerWidth < 768);
 
   var currentFile = null;
   var currentSource = null;
   var beforeUrl = null;
   var afterUrl = null;
+  var currentResultBlob = null;
 
   /* ---------- 工具函数 ---------- */
   function formatBytes(bytes) {
@@ -200,6 +203,8 @@
     if (currentSource) { currentSource.close(); currentSource = null; }
     fileInfo.classList.remove('show');
     resetResult();
+    currentResultBlob = null;
+    mobileHint.classList.add('hidden');
     compressBtn.disabled = true;
     fileInput.value = '';
   }
@@ -248,6 +253,7 @@
         result = await compressByQuality(currentSource, mime, q);
       }
 
+      currentResultBlob = result.blob;
       var beforeBytes = currentFile.size;
       var afterBytes = result.blob.size;
       var savedPercent = Math.max(0, Math.round((1 - afterBytes / beforeBytes) * 100));
@@ -270,6 +276,7 @@
       downloadBtn.download = base + '_compressed.' + (mime === 'image/webp' ? 'webp' : mime === 'image/png' ? 'png' : 'jpg');
 
       resultEl.classList.add('show');
+      if (isMobile) mobileHint.classList.remove('hidden');
     } catch (err) {
       alert(err && err.message ? err.message : '压缩失败，请重试');
     } finally {
@@ -304,6 +311,15 @@
   againBtn.addEventListener('click', function () {
     clearFile();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  downloadBtn.addEventListener('click', function (e) {
+    if (!isMobile || !currentResultBlob) return;
+    e.preventDefault();
+    var file = new File([currentResultBlob], downloadBtn.download, { type: getSelectedFormat() });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: '压缩图片', text: '压缩后的图片' }).catch(function () {});
+    }
   });
 
   targetSelect.addEventListener('change', updateOptions);
