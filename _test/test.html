@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PDF 工具逻辑测试</title>
+<style>body{font-family:monospace;padding:20px;background:#111;color:#eee}pre{white-space:pre-wrap}</style>
+</head>
+<body>
+<pre id="out">测试中…</pre>
+<script src="../js/lib/pdf-lib.min.js"></script>
+<script src="../js/lib/jszip.min.js"></script>
+<script>
+'use strict';
+var out = document.getElementById('out');
+function log(s) { out.textContent += s + '\n'; }
+
+async function makeTestPdf(text) {
+  var d = await PDFLib.PDFDocument.create();
+  var page = d.addPage([300, 300]);
+  page.drawText(text, { x: 50, y: 150, size: 24 });
+  return d.save();
+}
+
+(async function () {
+  try {
+    log('pdf-lib 版本: ' + PDFLib.version);
+    log('JSZip 已加载: ' + (typeof JSZip !== 'undefined'));
+
+    // 1. 图片转 PDF 逻辑
+    var canvas = document.createElement('canvas');
+    canvas.width = 200; canvas.height = 150;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#e8590c'; ctx.fillRect(0, 0, 200, 150);
+    var imgBlob = await new Promise(function (r) { canvas.toBlob(r, 'image/png'); });
+    var pdfDoc = await PDFLib.PDFDocument.create();
+    var img = await pdfDoc.embedPng(await imgBlob.arrayBuffer());
+    var page = pdfDoc.addPage([200 * 72 / 96, 150 * 72 / 96]);
+    page.drawImage(img, { x: 0, y: 0, width: 200 * 72 / 96, height: 150 * 72 / 96 });
+    var bytes = await pdfDoc.save();
+    log('图片转PDF: 生成成功, 大小 ' + bytes.length + ' 字节, 页数 ' + pdfDoc.getPageCount());
+
+    // 2. PDF 合并逻辑
+    var b1 = await makeTestPdf('Page 1');
+    var b2 = await makeTestPdf('Page 2');
+    var dest = await PDFLib.PDFDocument.create();
+    var s1 = await PDFLib.PDFDocument.load(b1);
+    var s2 = await PDFLib.PDFDocument.load(b2);
+    var p1 = await dest.copyPages(s1, s1.getPageIndices());
+    p1.forEach(function (p) { dest.addPage(p); });
+    var p2 = await dest.copyPages(s2, s2.getPageIndices());
+    p2.forEach(function (p) { dest.addPage(p); });
+    var merged = await dest.save();
+    log('PDF合并: 合并后页数 = ' + dest.getPageCount() + ' (期望 2), 大小 ' + merged.length + ' 字节');
+
+    // 3. PDF 拆分（提取页）逻辑
+    var src = await PDFLib.PDFDocument.load(b1);
+    var doc = await PDFLib.PDFDocument.create();
+    var copied = await doc.copyPages(src, [0]);
+    copied.forEach(function (p) { doc.addPage(p); });
+    var ext = await doc.save();
+    log('PDF拆分(提取页): 提取后页数 = ' + doc.getPageCount() + ' (期望 1), 大小 ' + ext.length + ' 字节');
+
+    // 4. 每页单独拆分 + ZIP 打包
+    var zip = new JSZip();
+    var b3 = await makeTestPdf('A');
+    var b4 = await makeTestPdf('B');
+    zip.file('page_1.pdf', b3);
+    zip.file('page_2.pdf', b4);
+    var zipBlob = await zip.generateAsync({ type: 'blob' });
+    log('ZIP打包: 生成成功, 大小 ' + zipBlob.size + ' 字节, 文件数 2');
+
+    log('');
+    log('测试完成');
+  } catch (err) {
+    log('出错: ' + (err && err.message ? err.message : err));
+  }
+})();
+</script>
+</body>
+</html>
