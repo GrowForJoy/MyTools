@@ -1,4 +1,5 @@
-import { GIFEncoder, quantize, applyPalette } from './lib/gifenc.esm.js';
+/* gifenc 以全局版脚本引入（兼容 file:// 双击打开），API 挂载在 window.gifenc */
+const { GIFEncoder, quantize, applyPalette } = window.gifenc || {};
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
