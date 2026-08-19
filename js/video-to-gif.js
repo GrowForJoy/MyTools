@@ -89,6 +89,10 @@ function loadVideo(file) {
   fileOnly = file;
   if (srcURL) URL.revokeObjectURL(srcURL);
   srcURL = URL.createObjectURL(file);
+  // 预载并开启播放内联 / 静音，部分应用内浏览器需要这些属性才会真正解码视频帧
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
   video.src = srcURL;
 
   fileNameEl.textContent = file.name;
@@ -102,7 +106,17 @@ function loadVideo(file) {
     hide(progTrack); hide(progText); hide(status);
     fileInput.value = '';
     prepareRange();
+    activatePlayback();
   };
+}
+
+/* 静音播放一下再暂停，激活解码管线：避免部分内置浏览器/应用内浏览器不自动出帧导致黑屏 */
+function activatePlayback() {
+  if (video.readyState < 2) return;
+  const p = video.play();
+  if (p && p.then) {
+    p.then(() => { video.pause(); }).catch(() => {});
+  }
 }
 
 /* 部分 WebM（如 MediaRecorder/录屏）duration 为 Infinity，需等 buffered 填好后才能确定真实时长 */
@@ -201,15 +215,29 @@ document.querySelectorAll('input[name="mode"]').forEach((r) =>
 /* ---------- 抽帧 ---------- */
 function captureTime(t) {
   return new Promise((resolve, reject) => {
-    const onSeek = () => {
-      cleanup();
+    let cleaned = false;
+    let guard = null;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (guard) clearTimeout(guard);
+      video.removeEventListener('seeked', onSeek);
+      video.removeEventListener('loadeddata', doDraw);
+      video.removeEventListener('error', onErr);
+    };
+    const doDraw = () => {
       try {
         drawCtx.drawImage(video, 0, 0, cw, ch);
+        cleanup();
         resolve(drawCtx.getImageData(0, 0, cw, ch).data);
-      } catch (err) { reject(err); }
+      } catch (err) { cleanup(); reject(err); }
+    };
+    const onSeek = () => {
+      // 部分环境下 seek 后画面可能尚未解码，等 loadeddata 再绘制，避免抽到黑帧
+      if (video.readyState < 2) { video.addEventListener('loadeddata', doDraw, { once: true }); guard = setTimeout(doDraw, 1200); }
+      else doDraw();
     };
     const onErr = () => { cleanup(); reject(new Error('seek failed')); };
-    const cleanup = () => { video.removeEventListener('seeked', onSeek); video.removeEventListener('error', onErr); };
     video.addEventListener('seeked', onSeek);
     video.addEventListener('error', onErr);
     video.muted = true;
@@ -225,7 +253,8 @@ function ensureCanvas(w, h) {
     cw = w; ch = h;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
-    drawCtx = c.getContext('2d', { willReadFrequently: true });
+    // preserveDrawingBuffer:true 避免嵌入式 WebView / 应用内浏览器读帧后缓冲区被清空导致黑色
+    drawCtx = c.getContext('2d', { willReadFrequently: true, preserveDrawingBuffer: true });
   }
 }
 
