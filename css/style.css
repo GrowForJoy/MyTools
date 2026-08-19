@@ -218,6 +218,7 @@ a { color: var(--accent); }
 .icon-blue { background: #DBEAFE; color: #2563EB; }
 .icon-green { background: #DCFCE7; color: #16A34A; }
 .icon-purple { background: #EDE9FE; color: #7C3AED; }
+.icon-amber { background: #FEF3C7; color: #D97706; }
 .icon-muted { background: var(--surface-2); color: var(--ink-3); }
 
 .tool-card h3 {
@@ -1115,6 +1116,139 @@ a { color: var(--accent); }
 }
 
 .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+/* ===== 九宫格切图 ===== */
+.segmented.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.segmented.cols-3 { grid-template-columns: repeat(3, 1fr); }
+
+.preview-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.preview-head .result-title { margin: 0; }
+.live-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--teal);
+  background: var(--teal-soft);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.preview-head .status-text { margin-left: auto; }
+.preview-note { font-size: 12px; color: var(--ink-3); margin: 0 0 16px; }
+
+.grid-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.gc-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.gc-chip:hover { border-color: var(--accent); color: var(--accent); }
+.gc-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 4px 12px rgba(232, 89, 12, 0.3); }
+
+.rowcols { display: flex; align-items: flex-end; gap: 10px; }
+.rc-field { flex: 1; min-width: 0; }
+.rc-field label { display: block; font-size: 12px; color: var(--ink-3); margin-bottom: 5px; font-weight: 600; }
+.rc-field .input-num { text-align: center; }
+.rowcols .times { color: var(--ink-3); padding-bottom: 12px; font-size: 16px; }
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+  margin-top: 20px;
+}
+/* 分块图片占满所属格子，几张拼起来形成连续大图预览 */
+.tile {
+  position: relative;
+  line-height: 0;
+  overflow: hidden;
+}
+.tile-media {
+  position: relative;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+  background: #fff;
+}
+.tile-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 序号：纯 UI 角标，只在预览区显示，不烙进图片文件 */
+.tile-chip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(232, 89, 12, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+/* 操作按钮：悬浮在图片角落，不占预览布局 */
+.tile-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  gap: 5px;
+}
+.tile-btn {
+  border: none;
+  background: rgba(34, 27, 18, 0.62);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  padding: 5px 9px;
+  cursor: pointer;
+  line-height: 1;
+  backdrop-filter: blur(3px);
+  transition: background 0.15s;
+}
+.tile-btn:hover { background: var(--accent); }
+.tile-btn.hole:hover { background: #dc2626; }
+.tile-empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface-2);
+}
+.tile.holed .tile-media img { opacity: 0.28; filter: grayscale(1); }
+.tile.holed .tile-empty { display: flex; }
+.tile.holed .tile-chip { background: rgba(122, 111, 94, 0.92); }
+
+.order-hint {
+  margin-top: 18px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 10px; }
+}
 
 /* ===== 视频转 GIF 专用 ===== */
 .preview-box video {
