@@ -107,6 +107,8 @@ function loadVideo(file) {
     fileInput.value = '';
     prepareRange();
     activatePlayback();
+    // 等首帧解码后检测画面是否全黑（常见于 HEVC/H.265 等浏览器不支持的编码）
+    checkBlackVideo();
   };
 }
 
@@ -117,6 +119,80 @@ function activatePlayback() {
   if (p && p.then) {
     p.then(() => { video.pause(); }).catch(() => {});
   }
+}
+
+/* 检测视频是否是全黑的（常见于 HEVC/H.265 等浏览器无法解码的编码）。
+   策略：跳到一个偏中间的时间点，抽一帧到 canvas，取样判断是否有正常颜色。
+   如果全黑，在页面上显示友好提示。 */
+let blackWarnShown = false;
+function checkBlackVideo() {
+  blackWarnShown = false;
+  const warn = document.getElementById('blackWarn');
+  if (warn) warn.remove();
+  // 等 1.2 秒让解码完成，再抽一帧中间位置的画面检测
+  setTimeout(() => {
+    const dur = getDuration();
+    if (!dur || dur < 0.2) return;
+    const probeTime = Math.min(dur * 0.3, dur - 0.1);
+    const testW = 160;
+    const testH = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * testW));
+    ensureCanvas(testW, testH);
+    // 用一个独立的临时 canvas 做检测，避免影响主流程
+    const tc = document.createElement('canvas');
+    tc.width = testW; tc.height = testH;
+    const tctx = tc.getContext('2d', { willReadFrequently: true, preserveDrawingBuffer: true });
+
+    const doCheck = () => {
+      try {
+        tctx.drawImage(video, 0, 0, testW, testH);
+      } catch (e) { return; }
+      const data = tctx.getImageData(0, 0, testW, testH).data;
+      let maxBright = 0;
+      let nonBlack = 0;
+      // 取样：每隔若干像素采一个，不用全采
+      const step = Math.max(1, Math.floor(data.length / 4 / 400));
+      for (let i = 0; i < data.length; i += 4 * step) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const bright = (r + g + b) / 3;
+        if (bright > maxBright) maxBright = bright;
+        if (bright > 25) nonBlack++;
+      }
+      const total = Math.floor(data.length / 4 / step);
+      const ratio = total > 0 ? nonBlack / total : 0;
+      // 判断：最亮点也很暗 且 非黑像素占比极低 → 认为画面是黑的
+      if (maxBright < 20 && ratio < 0.02) {
+        showBlackWarn();
+      }
+    };
+
+    const seekCheck = () => {
+      video.removeEventListener('seeked', seekCheck);
+      // 等 loadeddata 确保帧真正解码
+      if (video.readyState < 2) {
+        video.addEventListener('loadeddata', doCheck, { once: true });
+        setTimeout(doCheck, 1500); // 兜底
+      } else {
+        doCheck();
+      }
+    };
+    video.addEventListener('seeked', seekCheck);
+    try { video.currentTime = probeTime; } catch (e) {}
+  }, 1200);
+}
+
+function showBlackWarn() {
+  if (blackWarnShown) return;
+  blackWarnShown = true;
+  const box = document.createElement('div');
+  box.id = 'blackWarn';
+  box.className = 'wechat-fit-note';
+  box.style.cssText = 'margin-top:14px;background:#FFF7ED;border:1px solid #FDBA74;color:#92400E;';
+  box.innerHTML =
+    '<strong>⚠️ 视频画面可能无法解码</strong><br>' +
+    '检测到视频画面是全黑的（有声音但没画面）。这通常是因为视频使用了浏览器不支持的编码（例如 iPhone 拍摄的 HEVC / H.265）。<br>' +
+    '<strong>解决方法：</strong>先用格式转换工具把视频转成 H.264 编码的 MP4，再上传到本工具即可。也可以试试在电脑上用「照片」或「剪映」导出一遍再上传。';
+  const target = document.getElementById('editor');
+  if (target) target.appendChild(box);
 }
 
 /* 部分 WebM（如 MediaRecorder/录屏）duration 为 Infinity，需等 buffered 填好后才能确定真实时长 */
@@ -398,6 +474,9 @@ againBtn.addEventListener('click', () => {
 
 function resetAll() {
   rangeFinalized = false;
+  blackWarnShown = false;
+  const w = document.getElementById('blackWarn');
+  if (w) w.remove();
   duration = 0;
   hide(result);
   editor.classList.add('hidden');
