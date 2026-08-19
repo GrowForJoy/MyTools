@@ -1115,3 +1115,71 @@ a { color: var(--accent); }
 }
 
 .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+/* ===== 视频转 GIF 专用 ===== */
+.preview-box video {
+  width: 100%;
+  max-height: 46vh;
+  border-radius: 10px;
+  background: #000;
+  display: block;
+}
+.timeline {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.timeline .range-row label {
+  min-width: 64px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.seg-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+.progress-track {
+  margin-top: 16px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line, rgba(127,127,127,.25));
+  overflow: hidden;
+}
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width .15s linear;
+}
+.progress-text { margin-top: 8px; font-size: 13px; color: var(--ink-2); text-align: center; }
+.gif-box {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px dashed var(--line, rgba(127,127,127,.3));
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  background: var(--card-bg, transparent);
+}
+.gif-box img { max-width: 100%; max-height: 380px; border-radius: 8px; }
+.wechat-fit-note {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.result-actions { margin-top: 18px; }
+@media (max-width: 600px) {
+  .timeline .range-row label { min-width: 52px; font-size: 13px; }
+  .seg-info { flex-wrap: wrap; }
+}
