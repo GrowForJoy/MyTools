@@ -273,29 +273,70 @@ async function autoTranscodeToH264() {
     showTranscodeHint(
       '<strong>⚠️ 自动转码失败</strong><br>' +
       '原因：' + (err && err.message ? err.message : err) + '<br>' +
-      '你可以先用电脑上的格式转换工具把视频转成 H.264 编码的 MP4，再上传使用。'
+      '请检查网络后点一次"再次转换"重试；如果仍不行，可以先断开 VPN 或用手机热点试试（CDN 在国内有时不稳）。' +
+      '也可先用电脑上的格式转换工具把视频转成 H.264 编码的 MP4，再上传使用。'
     );
+    // 提供一个重试按钮
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.textContent = '🔄 再次转换';
+    retryBtn.style.cssText = 'margin-top:8px;padding:6px 14px;border-radius:6px;border:none;background:#1D4ED8;color:#fff;cursor:pointer;';
+    retryBtn.onclick = () => { ffmpegWasmPromise = null; autoTranscodeToH264(); };
+    document.getElementById('transcodeHint').appendChild(retryBtn);
   } finally {
-    if (transcodeState === 'done') convertBtn.disabled = false;
+    // 无论成功与否都恢复按钮，用户可以手动重试
+    if (transcodeState !== 'loading') convertBtn.disabled = false;
   }
 }
 
-/* 懒加载 ffmpeg.wasm（从 CDN 加载，单线程版兼容性最好），单例缓存 */
+/* 懒加载 ffmpeg.wasm（从多个国内可达的 CDN 自动切换，单线程版兼容性最好），单例缓存 */
 let ffmpegWasmPromise = null;
 function loadFFmpegWasm() {
   if (ffmpegWasmPromise) return ffmpegWasmPromise;
   ffmpegWasmPromise = (async () => {
-    // 从 CDN 加载 @ffmpeg/ffmpeg (UMD 版) 和 ffmpeg-core
-    await loadScript('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
-    const { createFFmpeg, fetchFile } = window.FFmpegWASM || window.FFmpeg || {};
-    if (!createFFmpeg) throw new Error('ffmpeg.js 加载失败，请检查网络后重试');
+    // 按顺序尝试的 CDN：主脚本 + 核心文件走同一个源，避免跨源不一致
+    // 固定用 @ffmpeg/ffmpeg@0.11.6 + @ffmpeg/core@0.11.0（createFFmpeg / run / FS 老版 API）
+    const CDNS = [
+      {
+        label: 'jsdelivr',
+        script: 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js',
+        core: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+      },
+      {
+        label: 'npmmirror(国内)',
+        script: 'https://registry.npmmirror.com/@ffmpeg/ffmpeg/0.11.6/files/dist/ffmpeg.min.js',
+        core: 'https://registry.npmmirror.com/@ffmpeg/core/0.11.0/files/dist/ffmpeg-core.js'
+      },
+      {
+        label: 'fastly.jsdelivr',
+        script: 'https://fastly.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js',
+        core: 'https://fastly.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+      },
+      {
+        label: 'unpkg',
+        script: 'https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js',
+        core: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+      }
+    ];
 
-    const ffmpeg = createFFmpeg({
-      log: false,
-      corePath: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
-    });
-    await ffmpeg.load();
-    return ffmpeg;
+    let lastErr = null;
+    for (const cdn of CDNS) {
+      try {
+        // 先清掉可能残留的旧全局对象
+        delete window.FFmpegWASM; delete window.FFmpeg;
+        await loadScript(cdn.script);
+        const { createFFmpeg } = window.FFmpegWASM || window.FFmpeg || {};
+        if (!createFFmpeg) throw new Error('ffmpeg.js 未暴露 createFFmpeg（' + cdn.label + '）');
+        const ffmpeg = createFFmpeg({ log: false, corePath: cdn.core });
+        await ffmpeg.load();
+        return ffmpeg; // 成功：到此为止
+      } catch (e) {
+        lastErr = e;
+        // 继续尝试下一个 CDN
+      }
+    }
+    ffmpegWasmPromise = null; // 允许下次重试
+    throw new Error('所有 CDN 都加载失败：' + (lastErr && lastErr.message ? lastErr.message : '未知错误'));
   })();
   return ffmpegWasmPromise;
 }
@@ -304,7 +345,7 @@ function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src;
-    s.onload = resolve;
+    s.onload = () => resolve();
     s.onerror = () => reject(new Error('脚本加载失败：' + src));
     document.head.appendChild(s);
   });
