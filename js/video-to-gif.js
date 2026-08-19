@@ -123,12 +123,11 @@ function activatePlayback() {
 
 /* 检测视频是否是全黑的（常见于 HEVC/H.265 等浏览器无法解码的编码）。
    策略：跳到一个偏中间的时间点，抽一帧到 canvas，取样判断是否有正常颜色。
-   如果全黑，在页面上显示友好提示。 */
-let blackWarnShown = false;
+   如果全黑，自动用 ffmpeg.wasm 转成 H.264 后替换源视频，无需用户手动操作。 */
+let transcodeState = 'idle'; // idle | loading | transcoding | done | error
 function checkBlackVideo() {
-  blackWarnShown = false;
-  const warn = document.getElementById('blackWarn');
-  if (warn) warn.remove();
+  transcodeState = 'idle';
+  removeTranscodeHint();
   // 等 1.2 秒让解码完成，再抽一帧中间位置的画面检测
   setTimeout(() => {
     const dur = getDuration();
@@ -136,7 +135,6 @@ function checkBlackVideo() {
     const probeTime = Math.min(dur * 0.3, dur - 0.1);
     const testW = 160;
     const testH = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * testW));
-    ensureCanvas(testW, testH);
     // 用一个独立的临时 canvas 做检测，避免影响主流程
     const tc = document.createElement('canvas');
     tc.width = testW; tc.height = testH;
@@ -159,9 +157,9 @@ function checkBlackVideo() {
       }
       const total = Math.floor(data.length / 4 / step);
       const ratio = total > 0 ? nonBlack / total : 0;
-      // 判断：最亮点也很暗 且 非黑像素占比极低 → 认为画面是黑的
+      // 判断：最亮点也很暗 且 非黑像素占比极低 → 认为画面是黑的，自动转码
       if (maxBright < 20 && ratio < 0.02) {
-        showBlackWarn();
+        autoTranscodeToH264();
       }
     };
 
@@ -180,19 +178,136 @@ function checkBlackVideo() {
   }, 1200);
 }
 
-function showBlackWarn() {
-  if (blackWarnShown) return;
-  blackWarnShown = true;
+function showTranscodeHint(msg) {
+  removeTranscodeHint();
   const box = document.createElement('div');
-  box.id = 'blackWarn';
+  box.id = 'transcodeHint';
   box.className = 'wechat-fit-note';
-  box.style.cssText = 'margin-top:14px;background:#FFF7ED;border:1px solid #FDBA74;color:#92400E;';
-  box.innerHTML =
-    '<strong>⚠️ 视频画面可能无法解码</strong><br>' +
-    '检测到视频画面是全黑的（有声音但没画面）。这通常是因为视频使用了浏览器不支持的编码（例如 iPhone 拍摄的 HEVC / H.265）。<br>' +
-    '<strong>解决方法：</strong>先用格式转换工具把视频转成 H.264 编码的 MP4，再上传到本工具即可。也可以试试在电脑上用「照片」或「剪映」导出一遍再上传。';
+  box.style.cssText = 'margin-top:14px;background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;';
+  box.innerHTML = msg;
   const target = document.getElementById('editor');
   if (target) target.appendChild(box);
+}
+function removeTranscodeHint() {
+  const e = document.getElementById('transcodeHint');
+  if (e) e.remove();
+  const w = document.getElementById('blackWarn');
+  if (w) w.remove();
+}
+
+/* 用 ffmpeg.wasm（从 CDN 懒加载）把视频转成 H.264 编码，
+   解决浏览器不支持 HEVC/H.265 等编码时画面全黑的问题。
+   转码完成后自动替换为新的 H.264 视频，整个过程用户无感知。 */
+async function autoTranscodeToH264() {
+  if (transcodeState !== 'idle') return;
+  transcodeState = 'loading';
+  showTranscodeHint(
+    '<strong>🔄 视频编码不兼容，正在自动转码…</strong><br>' +
+    '检测到浏览器无法解码该视频（可能是 HEVC/H.265），正在后台自动转成 H.264 编码，稍等片刻即可。'
+  );
+  convertBtn.disabled = true;
+
+  try {
+    const ffmpeg = await loadFFmpegWasm();
+    transcodeState = 'transcoding';
+    showTranscodeHint(
+      '<strong>🔄 正在转码中，请稍候…</strong><br>' +
+      '首次使用需要下载转码组件（约 25MB），之后会自动缓存。转码过程通常需要几秒到几十秒。'
+    );
+
+    const inputName = 'input' + (fileOnly && fileOnly.name ? '.' + fileOnly.name.split('.').pop() : '.mp4');
+    const outputName = 'output.mp4';
+
+    // 读取原始文件
+    const data = new Uint8Array(await fileOnly.arrayBuffer());
+    ffmpeg.FS('writeFile', inputName, data);
+
+    // 转码：H.264 + yuv420p + 中等速度，去掉音频（做 GIF 用不到）
+    await ffmpeg.run(
+      '-i', inputName,
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-preset', 'veryfast',
+      '-crf', '24',
+      '-an',
+      '-movflags', '+faststart',
+      outputName
+    );
+
+    const outData = ffmpeg.FS('readFile', outputName);
+    const outBlob = new Blob([outData.buffer], { type: 'video/mp4' });
+
+    // 清理临时文件
+    try { ffmpeg.FS('unlink', inputName); } catch (e) {}
+    try { ffmpeg.FS('unlink', outputName); } catch (e) {}
+
+    // 替换为转码后的 H.264 视频
+    transcodeState = 'done';
+    removeTranscodeHint();
+    const successMsg = document.createElement('div');
+    successMsg.id = 'transcodeHint';
+    successMsg.className = 'wechat-fit-note';
+    successMsg.style.cssText = 'margin-top:14px;background:#ECFDF5;border:1px solid #6EE7B7;color:#065F46;';
+    successMsg.innerHTML = '✅ 已自动转码为 H.264 编码，现在可以正常预览和生成动图了。';
+    document.getElementById('editor').appendChild(successMsg);
+
+    fileOnly = new File([outBlob], (fileOnly && fileOnly.name || 'video').replace(/\.[^.]+$/, '') + '_h264.mp4', { type: 'video/mp4' });
+    if (srcURL) URL.revokeObjectURL(srcURL);
+    srcURL = URL.createObjectURL(outBlob);
+    video.src = srcURL;
+    // 重新走一遍加载流程
+    video.onloadedmetadata = () => {
+      hide(result);
+      show(editor);
+      show(options);
+      show(genRow);
+      hide(progTrack); hide(progText); hide(status);
+      fileInput.value = '';
+      prepareRange();
+      activatePlayback();
+      // 转码后的视频不需要再检测
+    };
+  } catch (err) {
+    transcodeState = 'error';
+    console.error('autoTranscodeToH264 failed:', err);
+    showTranscodeHint(
+      '<strong>⚠️ 自动转码失败</strong><br>' +
+      '原因：' + (err && err.message ? err.message : err) + '<br>' +
+      '你可以先用电脑上的格式转换工具把视频转成 H.264 编码的 MP4，再上传使用。'
+    );
+  } finally {
+    if (transcodeState === 'done') convertBtn.disabled = false;
+  }
+}
+
+/* 懒加载 ffmpeg.wasm（从 CDN 加载，单线程版兼容性最好），单例缓存 */
+let ffmpegWasmPromise = null;
+function loadFFmpegWasm() {
+  if (ffmpegWasmPromise) return ffmpegWasmPromise;
+  ffmpegWasmPromise = (async () => {
+    // 从 CDN 加载 @ffmpeg/ffmpeg (UMD 版) 和 ffmpeg-core
+    await loadScript('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
+    const { createFFmpeg, fetchFile } = window.FFmpegWASM || window.FFmpeg || {};
+    if (!createFFmpeg) throw new Error('ffmpeg.js 加载失败，请检查网络后重试');
+
+    const ffmpeg = createFFmpeg({
+      log: false,
+      corePath: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+    });
+    await ffmpeg.load();
+    return ffmpeg;
+  })();
+  return ffmpegWasmPromise;
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('脚本加载失败：' + src));
+    document.head.appendChild(s);
+  });
 }
 
 /* 部分 WebM（如 MediaRecorder/录屏）duration 为 Infinity，需等 buffered 填好后才能确定真实时长 */
@@ -474,9 +589,8 @@ againBtn.addEventListener('click', () => {
 
 function resetAll() {
   rangeFinalized = false;
-  blackWarnShown = false;
-  const w = document.getElementById('blackWarn');
-  if (w) w.remove();
+  transcodeState = 'idle';
+  removeTranscodeHint();
   duration = 0;
   hide(result);
   editor.classList.add('hidden');
