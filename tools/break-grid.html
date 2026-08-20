@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>冲出朋友圈九宫格 · 实用工具箱</title>
+  <meta name="description" content="冲出朋友圈九宫格：上传一张主体图自动抠图「冲」出格子，再上传 2~9 张图拼成九宫格背景，支持拖动摆放与缩放主体，合成一张适合发朋友圈的图片。全程浏览器本地处理，不上传。">
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    /* 本工具专有样式 */
+    .bg-grid{display:grid;grid-template-columns:repeat(3,1fr);box-sizing:border-box;}
+    .bg-grid .slot{aspect-ratio:1;position:relative;background:#fff;overflow:hidden;border-radius:0;}
+    .bg-grid .slot.drag-over{outline:2px solid var(--accent);outline-offset:-2px;}
+    .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;}
+    .slot-empty{position:absolute;inset:5%;border:1.5px dashed var(--line);border-radius:6px;user-select:none;pointer-events:none;}
+    .preview-edge{position:absolute;inset:0;border:1px solid var(--line);border-radius:10px;pointer-events:none;z-index:5;}
+
+    .preview-wrap{position:relative;width:100%;max-width:440px;margin:0 auto;}
+    .preview-box{position:relative;width:100%;aspect-ratio:1;background:#fff;border:none;border-radius:10px;overflow:hidden;touch-action:none;box-shadow:0 14px 38px rgba(0,0,0,.16);}
+    #subjectLayer{position:absolute;top:0;left:0;transform-origin:0 0;cursor:grab;touch-action:none;user-select:none;border-radius:2px;will-change:transform;}
+    #subjectLayer.dragging{cursor:grabbing;}
+
+    .upload-grid{display:grid;grid-template-columns:1fr;gap:14px;}
+    @media (min-width:720px){.upload-grid{grid-template-columns:1.05fr 1fr;}}
+    .upload-cell{display:flex;flex-direction:column;gap:8px;}
+    .cell-title{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink-2);font-size:14px;}
+    .req-badge{font-size:11px;font-weight:600;color:#fff;background:var(--accent);padding:1px 6px;border-radius:20px;}
+
+    .dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:90px;border:1.5px dashed var(--line);border-radius:10px;padding:14px;cursor:pointer;color:var(--ink-2);text-align:center;transition:.18s;}
+    .dropzone:hover,.dropzone:focus-visible{border-color:var(--accent);color:var(--accent);}
+    .dz-title{font-size:14px;font-weight:600;}
+    .dz-hint{font-size:12px;color:var(--ink-3);}
+    .dropzone.small{min-height:64px;}
+
+    .subject-thumb{position:relative;width:100%;aspect-ratio:1;max-width:150px;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
+    .subject-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+    .thumb-remove{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:1;cursor:pointer;}
+
+    .bg-tray{display:flex;flex-wrap:wrap;gap:8px;min-height:56px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:var(--surface-1);}
+    .tray-thumb{position:relative;width:52px;height:52px;border-radius:8px;overflow:hidden;cursor:grab;border:1px solid var(--line);background:var(--surface-2);flex:0 0 auto;}
+    .tray-thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none;}
+    .tray-thumb.selected{outline:2px solid var(--accent);outline-offset:1px;}
+    .tray-thumb.dragging{opacity:.4;}
+    .tray-hint{font-size:12px;color:var(--ink-3);}
+
+    .drag-ghost{position:fixed;left:0;top:0;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 22px rgba(0,0,0,.25);pointer-events:none;z-index:99;background:#fff;}
+    .drag-ghost img{width:100%;height:100%;object-fit:cover;}
+
+    .edit-bar{display:flex;align-items:center;flex-wrap:wrap;gap:14px;padding:12px 2px;}
+    .edit-bar label{font-size:13px;color:var(--ink-3);white-space:nowrap;}
+    .range-row-sm{display:flex;align-items:center;gap:8px;flex:1;min-width:140px;}
+    .range-row-sm input[type=range]{flex:1;}
+    .cta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .seg-status{font-size:12px;color:var(--ink-3);}
+
+    .dl-progress{width:100%;margin-top:6px;}
+    .dl-bar{width:100%;height:8px;border-radius:20px;background:var(--surface-2);overflow:hidden;}
+    .dl-fill{width:0%;height:100%;border-radius:20px;background:var(--accent);transition:width .3s;}
+    .dl-fill.indeterminate{animation:dlpulse 1.2s ease-in-out infinite;}
+    @keyframes dlpulse{0%{width:18%}50%{width:45%}100%{width:18%}}
+    .dl-label{margin-top:4px;font-size:12px;color:var(--ink-3);}
+    .seg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="../index.html" aria-label="返回首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+          </svg>
+        </span>
+        <span class="brand-name">实用工具箱</span>
+      </a>
+      <nav class="header-nav">
+        <button class="icon-btn" id="themeToggle" aria-label="切换深色 / 浅色模式" title="切换主题">
+          <svg class="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <svg class="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+          </svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="tool-page">
+    <div class="tool-head">
+      <a class="back-link" href="../index.html">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        返回工具列表
+      </a>
+      <h1>冲出朋友圈九宫格</h1>
+      <p class="sub">上传一张「主体」图自动抠出人物跳出格子，再上传 2~9 张图拼成九宫格背景，可拖动摆放与缩放主体，最后合成一张适合发朋友圈的图片。全程浏览器本地处理，不上传。</p>
+    </div>
+
+    <section class="tool-panel">
+      <!-- 上传区 -->
+      <div class="upload-grid">
+        <div class="upload-cell">
+          <div class="cell-title"><span class="req-badge">主体</span> 上传要「冲出格子」的图片 <span class="dz-hint">建议人物清晰、背景简单效果好</span></div>
+          <div class="dropzone" id="subjectDrop" role="button" tabindex="0" aria-label="上传主体图片">
+            <p class="dz-title">点击选择主体图片</p>
+            <p class="dz-hint">JPG / PNG / WebP，单张</p>
+            <input type="file" id="subjectInput" accept="image/*" hidden>
+          </div>
+          <div class="subject-thumb hidden" id="subjectThumb">
+            <img id="subjectThumbImg" alt="主体缩略图">
+            <button class="thumb-remove" id="subjectRemove" aria-label="移除主体图" title="移除">×</button>
+          </div>
+        </div>
+
+        <div class="upload-cell">
+          <div class="cell-title">九宫格背景图 <span class="dz-hint" id="bgCount">已选 0 张</span></div>
+          <div class="dropzone small" id="bgDrop" role="button" tabindex="0" aria-label="上传九宫格背景图">
+            <p class="dz-title">点击选择 2~9 张背景图</p>
+            <p class="dz-hint">可多选；自动按顺序填入格子，之后可拖动摆放</p>
+            <input type="file" id="bgInput" accept="image/*" multiple hidden>
+          </div>
+          <div class="tray-hint">把下方缩略图拖到右边格子里，即可摆位置</div>
+          <div class="bg-tray" id="bgTray"></div>
+        </div>
+      </div>
+
+      <!-- 编辑区 -->
+      <div class="options hidden" id="editor">
+        <div class="edit-bar">
+          <label>主体大小</label>
+          <div class="range-row-sm">
+            <input type="range" id="subjectSize" min="30" max="260" value="160">
+            <span class="range-val" id="subjectSizeVal" style="width:44px">160%</span>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="centerBtn" type="button">主体居中</button>
+          <span class="seg-status" id="segStatus"></span>
+        </div>
+
+        <div class="preview-wrap">
+          <div class="preview-box" id="previewBox">
+            <div class="preview-edge" aria-hidden="true"></div>
+            <div class="bg-grid" id="bgGrid"></div>
+            <img id="subjectLayer" alt="主体抠图" draggable="false" hidden>
+          </div>
+        </div>
+        <p class="tray-hint" style="text-align:center;margin-top:8px">拖动背景框可换位；按住主体小人可拖动，滚轮 / 滑块可缩放</p>
+      </div>
+
+      <!-- 操作 -->
+      <div class="cta-row">
+        <button class="btn btn-primary" id="downloadBtn" disabled>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          生成并下载
+        </button>
+        <button class="btn btn-ghost" id="againBtn">重新来过</button>
+        <span class="status-text hidden" id="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="statusText">正在处理…</span>
+        </span>
+      </div>
+      <div class="dl-progress hidden" id="dlProgress">
+        <div class="dl-bar"><div class="dl-fill" id="dlFill"></div></div>
+        <span class="dl-label" id="dlLabel"></span>
+      </div>
+      <div class="seg-actions hidden" id="segActions">
+        <button class="btn btn-ghost btn-sm" id="useFullBtn" type="button">用整张主体（不抠图）继续</button>
+        <button class="btn btn-ghost btn-sm hidden" id="retryCutBtn" type="button">重新试一次抠图</button>
+      </div>
+      <p class="mobile-save-hint hidden" id="mobileHint">生成为一张 1080×1080 方图，适合直接发朋友圈；若浏览器无法自动下载，可长按生成结果保存。</p>
+    </section>
+
+    <section class="tips">
+      <h2>使用提示</h2>
+      <ul>
+        <li>「主体」图会被自动抠图（人像分割），抠出的主角可以拖动、缩放，摆出「冲出格子」的感觉。</li>
+        <li>抠图模型约 5MB，首次使用需联网下载一次，之后缓存到浏览器，不会上传你的图片。</li>
+        <li>主体建议用人物清晰、背景简单的照片，抠图效果更好。</li>
+        <li>背景格至少放 2 张图更有拼贴感；空格会留白。</li>
+        <li>所有处理都在浏览器本地完成，图片不会上传，可放心使用。</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p class="footer-note">实用工具箱 · 所有工具均在浏览器本地运行</p>
+    <p>图片不会上传到任何服务器，可放心使用</p>
+    <p>本站内容 · 由个人开发 · 禁止未经授权复制、盗用、二次复刻</p>
+  </footer>
+
+  <script src="../js/main.js"></script>
+  <script src="../js/break-grid.js"></script>
+</body>
+</html>
