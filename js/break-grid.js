@@ -2,14 +2,12 @@
   'use strict';
 
   var FINAL = 1080, GAP = 10, OUTER = 36, START = 0;
-  // 抠图模型 CDN：默认 jsDelivr，加载失败会自动按顺序尝试下方更稳的国内镜像（可按需增删）
+  // 抠图模型 CDN：国内优先 npmmirror → jsDelivr → unpkg，失败自动尝试下一个
   var SEG_BASES = [
-    'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747',
     'https://registry.npmmirror.com/@mediapipe/selfie_segmentation/0.1.1675465747/files',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747',
     'https://unpkg.com/@mediapipe/selfie_segmentation@0.1.1675465747'
   ];
-  var SEG_TIMEOUT_HARD = 120000;  // 超过此时间仍未完成才会提示（不由工具自动跳过）
-  var segBase = null;
   function cellLen() { return (FINAL - 2 * OUTER - 2 * GAP) / 3; }
   function stepLen() { return cellLen() + GAP; }
   var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
@@ -24,7 +22,8 @@
       centerBtn = $('centerBtn'), downloadBtn = $('downloadBtn'), againBtn = $('againBtn'),
      status = $('status'), statusText = $('statusText'), mobileHint = $('mobileHint'),
          dlProgress = $('dlProgress'), dlFill = $('dlFill'), dlLabel = $('dlLabel'),
-         segActions = $('segActions'), useFullBtn = $('useFullBtn'), retryCutBtn = $('retryCutBtn');
+         segActions = $('segActions'), useFullBtn = $('useFullBtn'), retryCutBtn = $('retryCutBtn'),
+         modeSwitch = $('modeSwitch'), modeLabel = $('modeLabel');
 
   var bgList = [];            // {url, img}
   var grid = new Array(9).fill(-1);  // slot -> bgList index or -1
@@ -63,108 +62,124 @@
   function endBusy() { status.classList.add('hidden'); }
 
   /* ---------- 人像分割（MediaPipe selfie，本地抠图） ---------- */
-  function loadSegScript() {
-    if (window.SelfieSegmentation && window.__segBase) return Promise.resolve(window.__segBase);
-    var i = 0;
-    function tryNext() {
-      if (i >= SEG_BASES.length) return Promise.reject(new Error('model cdn'));
-      var base = SEG_BASES[i++];
-      // 改用 fetch 下载脚本文本：能被进度统计捕获，从而在线条下方显示真实百分比
-      return window.fetch(base + '/selfie_segmentation.js')
-        .then(function (r) { if (!r.ok) throw new Error('cdn'); return r.text(); })
-        .then(function (text) {
-          var url = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
-          return new Promise(function (res, rej) {
-            var s = document.createElement('script');
-            s.src = url;
-            s.onload = function () { window.__segBase = base; URL.revokeObjectURL(url); res(base); };
-            s.onerror = function () { URL.revokeObjectURL(url); rej(new Error('cdn')); };
-            document.head.appendChild(s);
-          });
-        })
-        .catch(tryNext);
-    }
-    return tryNext();
-  }
-  function initSeg() {
-    if (seg) return Promise.resolve(seg);
-    return loadSegScript().then(function (base) {
-      segBase = base;
-      seg = new SelfieSegmentation({ locateFile: function (f) { return base + '/' + f; } });
-      seg.setOptions({ modelSelection: 1 });
-      return seg.initialize().then(function () { return seg; });
+  /* MediaPipe 的 WASM 大文件在 Web Worker 内部下载，主线程的 fetch 拦截根本看不到。
+     改用 XHR 在主线程预下载全部模型文件（XHR 有原生 onprogress），创建 blob URL 让 MediaPipe 直接用。 */
+  // 两套模型：hd = SIMD 高清版（精度高、初始化慢），lite = 非 SIMD 轻量版（初始化快、精度略低）
+  var SEG_FILES_HD = [
+    { name: 'selfie_segmentation.js', size: 44542 },
+    { name: 'selfie_segmentation_solution_simd_wasm_bin.js', size: 276493 },
+    { name: 'selfie_segmentation_solution_simd_wasm_bin.wasm', size: 5694839 },
+    { name: 'selfie_segmentation.tflite', size: 249024 },
+    { name: 'selfie_segmentation.binarypb', size: 362 }
+  ];
+  var SEG_FILES_LITE = [
+    { name: 'selfie_segmentation.js', size: 44542 },
+    { name: 'selfie_segmentation_solution_wasm_bin.js', size: 276488 },
+    { name: 'selfie_segmentation_solution_wasm_bin.wasm', size: 5587523 },
+    { name: 'selfie_segmentation.tflite', size: 249024 },
+    { name: 'selfie_segmentation.binarypb', size: 362 }
+  ];
+  var segMode = 'hd';  // 'hd' or 'lite'
+  function segFiles() { return segMode === 'lite' ? SEG_FILES_LITE : SEG_FILES_HD; }
+
+  function xhrDownload(url, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'blob';
+      xhr.onprogress = function (e) { onProgress(e.lengthComputable ? e.loaded : 0, e.lengthComputable ? e.total : 0, e.loaded); };
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+        else reject(new Error('HTTP ' + xhr.status));
+      };
+      xhr.onerror = function () { reject(new Error('network')); };
+      xhr.ontimeout = function () { reject(new Error('timeout')); };
+      xhr.timeout = 90000;
+      xhr.send();
     });
   }
-  /* ---------- 模型下载进度（拦截 fetch 统计真实字节） ---------- */
-  var dlState = { active: {}, doneTotal: 0, fetchTotal: 0 };
-  function dlLabelOf(u) { try { return decodeURIComponent((String(u).split('?')[0].split('/').pop() || '模型文件')); } catch (e) { return '模型文件'; } }
+
+  /* ---------- 模型下载进度 ---------- */
+  var dlState = { files: {} };
   function showDl(show) { dlProgress.classList.toggle('hidden', !show); }
   function updateDl() {
-    var knownTotal = dlState.fetchTotal, doneTotal = dlState.doneTotal, label = '';
-    for (var k in dlState.active) {
-      var it = dlState.active[k];
-      if (it.total > 0) knownTotal += it.total;
-      doneTotal += Math.min(it.done, it.total > 0 ? it.total : it.done);
-      if (!label) label = it.label;
+    var loaded = 0, size = 0;
+    for (var f in dlState.files) {
+      var p = dlState.files[f];
+      if (p.total > 0) { loaded += p.loaded; size += p.total; }
+      else { loaded += p.loaded; size += p.known; }
     }
-    if (knownTotal > 0) {
+    if (size > 0) {
       dlFill.classList.remove('indeterminate');
-      var pct = Math.min(100, Math.round(doneTotal / knownTotal * 100));
+      var pct = Math.min(100, Math.round(loaded / size * 100));
       dlFill.style.width = pct + '%';
-      dlLabel.textContent = '模型下载中 ' + pct + '%' + (label ? '（' + label + '）' : '');
+      var mb = (loaded / 1048576).toFixed(1), totalMb = (size / 1048576).toFixed(1);
+      dlLabel.textContent = '模型下载中 ' + pct + '%  (' + mb + ' / ' + totalMb + ' MB)';
     } else {
       dlFill.classList.add('indeterminate');
       dlLabel.textContent = '正在连接模型服务器…';
     }
   }
-  function patchFetchProgress() {
-    if (window.__segFetchPatched || typeof ReadableStream === 'undefined' || typeof window.fetch !== 'function') return;
-    window.__segFetchPatched = true;
-    var realFetch = window.fetch;
-    window.fetch = function (input, init) {
-      var url = '';
-      try { url = typeof input === 'string' ? input : (input && input.url) || ''; } catch (e) {}
-      if (!url || url.indexOf('selfie_segmentation') === -1) return realFetch.apply(this, arguments);
-      var id = url;
-      if (!dlState.active[id]) dlState.active[id] = { done: 0, total: -1, label: dlLabelOf(url) };
-      var p;
-      try {
-        p = realFetch.apply(this, arguments).then(function (res) {
-          var total = -1;
-          try { total = res.headers && Number(res.headers.get('content-length')); } catch (e) {}
-          var item = dlState.active[id];
-          item.total = total; item.done = 0;
-          if (!total || total <= 0 || !res.body || !res.body.getReader) { updateDl(); return res; }
-          var reader = res.body.getReader();
-          var stream = new ReadableStream({
-            start: function (controller) {
-              function pump() {
-                return reader.read().then(function (r) {
-                  if (r.done) {
-                    controller.close();
-                    dlState.doneTotal += item.done;
-                    dlState.fetchTotal += item.total;
-                    delete dlState.active[id];
-                    updateDl();
-                    return;
-                  }
-                  if (r.value) item.done += r.value.byteLength;
-                  updateDl();
-                  controller.enqueue(r.value);
-                  return pump();
-                }).catch(function (e) { controller.error(e); });
-              }
-              return pump();
-            },
-            cancel: function () { try { reader.cancel && reader.cancel(); } catch (e) {} }
+
+  function preDownloadModel(base) {
+    dlState = { files: {} };
+    segFiles().forEach(function (f) { dlState.files[f.name] = { loaded: 0, total: 0, known: f.size }; });
+    updateDl();
+    var blobUrls = {};
+    var promises = segFiles().map(function (f) {
+      return xhrDownload(base + '/' + f.name, function (loaded, total, raw) {
+        var p = dlState.files[f.name];
+        p.loaded = total > 0 ? loaded : raw;  // 没有content-length时用raw已传字节
+        p.total = total;
+        updateDl();
+      }).then(function (blob) {
+        blobUrls[f.name] = URL.createObjectURL(blob);
+      });
+    });
+    return Promise.all(promises).then(function () { return blobUrls; });
+  }
+
+  function loadScriptFromBlob(blobUrl) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = blobUrl;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error('script exec')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function initSeg() {
+    if (seg) return Promise.resolve(seg);
+    var cdnIdx = 0;
+    function tryCdn() {
+      if (cdnIdx >= SEG_BASES.length) return Promise.reject(new Error('all CDN failed'));
+      var base = SEG_BASES[cdnIdx++];
+      return preDownloadModel(base)
+        .then(function (blobUrls) {
+          // 下载完成，先停留 300ms 显示 100% ✓，让用户明确知道"下载完了"
+          dlFill.classList.remove('indeterminate');
+          dlFill.style.width = '100%';
+          dlLabel.textContent = '模型下载完成 ✓  正在初始化…';
+          statusText.textContent = '模型下载完成，正在初始化…';
+          return new Promise(function (r) { setTimeout(r, 300); }).then(function () {
+            // 进入初始化阶段（WASM 编译 + 模型加载，没有进度）
+            dlFill.classList.add('indeterminate');
+            dlLabel.textContent = '模型初始化中…（首次使用需编译 WASM，请稍候）';
+            statusText.textContent = '模型初始化中…';
+            return loadScriptFromBlob(blobUrls['selfie_segmentation.js']);
+          }).then(function () {
+            window.__segBase = base;
+            seg = new SelfieSegmentation({
+              locateFile: function (f) { return blobUrls[f] || (base + '/' + f); }
+            });
+            seg.setOptions({ modelSelection: 1 });
+            return seg.initialize().then(function () { return seg; });
           });
-          return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
-        });
-      } catch (e) {
-        return realFetch.apply(this, arguments);
-      }
-      return p;
-    };
+        })
+        .catch(function () { return tryCdn(); });
+    }
+    return tryCdn();
   }
 
   function segMaskCanvas(src) {
@@ -207,7 +222,7 @@
     subj.l = Math.round((FINAL - subj.w) / 2);
     subj.t = Math.round((FINAL - h) / 2) - Math.round(cell * 0.25);
     showDl(false);
-    dlState.doneTotal = 0; dlState.fetchTotal = 0; dlState.active = {};
+    dlState = { files: {} };
     endBusy();
     segActions.classList.add('hidden');
     useFullBtn.classList.add('hidden');
@@ -215,6 +230,7 @@
     editor.classList.remove('hidden');
     downloadBtn.disabled = false;
     updatePreviewScaling();
+    renderGrid();
     segStatus.textContent = fallback
       ? '（已用整张主体、未抠图。可点「重新试一次抠图」再试）'
       : '抠图完成 ✓  拖动主体摆出冲出格子的效果';
@@ -223,8 +239,7 @@
 
   /* 不自动跳过：失败只提示，由用户手动选择继续方式 */
   function processSubject(imgEl, rawUrl) {
-    setBusy('正在下载抠图模型并抠图（首次约 5MB）…');
-    patchFetchProgress();
+    setBusy('正在下载抠图模型并抠图（首次约 6MB）…');
     showDl(true);
     updateDl();
     segActions.classList.add('hidden');
@@ -245,7 +260,7 @@
       })
       .catch(function () {
         showDl(false);
-        dlState.doneTotal = 0; dlState.fetchTotal = 0; dlState.active = {};
+        dlState = { files: {} };
         endBusy();
         useFullBtn.classList.remove('hidden');
         segStatus.textContent = '抠图未就绪：模型下载或本地抠图失败。可重试，或用整张主体继续。';
@@ -289,22 +304,28 @@
     var used = {};
     for (var i = 0; i < 9; i++) if (grid[i] !== -1) used[grid[i]] = true;
     bgList.forEach(function (b, idx) {
-      if (used[idx]) return;
       var d = document.createElement('div');
       d.className = 'tray-thumb';
       d.dataset.drag = idx;
       d.draggable = false;
       d.style.touchAction = 'none';
       if (selIdx === idx) d.classList.add('selected');
+      if (used[idx]) d.classList.add('placed');
       var im = document.createElement('img');
       im.src = b.url; im.alt = '';
       d.appendChild(im);
+      if (used[idx]) {
+        var tag = document.createElement('span');
+        tag.className = 'placed-tag';
+        tag.textContent = '已入格';
+        d.appendChild(tag);
+      }
       bgTray.appendChild(d);
     });
     if (bgList.length) {
       var hint = document.createElement('div');
       hint.className = 'tray-hint';
-      hint.textContent = (selIdx !== -1 ? '已选中 1 张，点右方格子放置/交换；选中的图会在下方高亮' : '拖动缩略图到格子，或先点选再点格子');
+      hint.textContent = (selIdx !== -1 ? '已选中 1 张，点右方格子放置/交换；选中的图会在下方高亮' : '拖动缩略图到格子，或先点选再点格子；标「已入格」的图已在九宫格里');
       bgTray.appendChild(hint);
     }
   }
@@ -334,9 +355,14 @@
   function addBgFiles(files) {
     var arr = Array.prototype.slice.call(files);
     if (!arr.length) return;
+    // 每张图独立 catch：单张失败不阻断其余图的加载与渲染
     var proms = arr.map(function (f) {
       var url = URL.createObjectURL(f);
-      return loadImg(url).then(function (img) { bgList.push({ url: url, img: img }); });
+      return loadImg(url).then(function (img) {
+        bgList.push({ url: url, img: img });
+      }).catch(function () {
+        URL.revokeObjectURL(url);
+      });
     });
     Promise.all(proms).then(function () {
       if (!customGrid) {
@@ -545,6 +571,27 @@
     retryCutBtn.classList.add('hidden');
   });
 
+  /* 模型模式切换：高清版 / 轻量版 */
+  function updateModeLabel() {
+    if (modeLabel) modeLabel.textContent = segMode === 'lite' ? '轻量版（快）' : '高清版（慢）';
+  }
+  updateModeLabel();
+  if (modeSwitch) {
+    modeSwitch.addEventListener('change', function () {
+      var newMode = modeSwitch.checked ? 'lite' : 'hd';
+      if (newMode === segMode) return;
+      segMode = newMode;
+      seg = null;  // 清空旧模型，下次抠图会重新加载
+      updateModeLabel();
+      // 如果已经有主体图，提示用户重新抠图
+      if (subjectThumbImg && subjectThumbImg.src && !subjectThumb.classList.contains('hidden')) {
+        segStatus.textContent = '已切换到' + (segMode === 'lite' ? '轻量版' : '高清版') + '，点击「重新试一次抠图」应用新模式';
+        segActions.classList.remove('hidden');
+        retryCutBtn.classList.remove('hidden');
+      }
+    });
+  }
+
   /* 失败时手动选择：用整张主体 / 重试抠图 */
   useFullBtn.addEventListener('click', function () {
     var img = subjectThumbImg;
@@ -652,7 +699,7 @@
     segActions.classList.add('hidden');
     useFullBtn.classList.add('hidden');
     retryCutBtn.classList.add('hidden');
-    dlState.doneTotal = 0; dlState.fetchTotal = 0; dlState.active = {};
+    dlState = { files: {} };
     renderTray(); renderGrid();
   });
 })();

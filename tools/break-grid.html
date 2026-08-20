@@ -41,6 +41,8 @@
     .tray-thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none;}
     .tray-thumb.selected{outline:2px solid var(--accent);outline-offset:1px;}
     .tray-thumb.dragging{opacity:.4;}
+    .tray-thumb.placed img{opacity:.45;}
+    .placed-tag{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);color:#fff;font-size:10px;line-height:1.6;text-align:center;pointer-events:none;}
     .tray-hint{font-size:12px;color:var(--ink-3);}
 
     .drag-ghost{position:fixed;left:0;top:0;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 22px rgba(0,0,0,.25);pointer-events:none;z-index:99;background:#fff;}
@@ -52,6 +54,16 @@
     .range-row-sm input[type=range]{flex:1;}
     .cta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .seg-status{font-size:12px;color:var(--ink-3);}
+
+    .mode-row{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:var(--ink-2);}
+    .mode-label{font-weight:600;}
+    .mode-val{font-size:12px;color:var(--ink-3);min-width:80px;}
+    .mode-switch{position:relative;display:inline-block;width:42px;height:22px;flex-shrink:0;}
+    .mode-switch input{opacity:0;width:0;height:0;}
+    .mode-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--surface-2);border:1px solid var(--line);transition:.2s;border-radius:22px;}
+    .mode-slider:before{position:absolute;content:"";height:16px;width:16px;left:2px;bottom:2px;background:white;transition:.2s;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+    .mode-switch input:checked + .mode-slider{background:var(--accent);border-color:var(--accent);}
+    .mode-switch input:checked + .mode-slider:before{transform:translateX(20px);}
 
     .dl-progress{width:100%;margin-top:6px;}
     .dl-bar{width:100%;height:8px;border-radius:20px;background:var(--surface-2);overflow:hidden;}
@@ -110,6 +122,14 @@
           <div class="subject-thumb hidden" id="subjectThumb">
             <img id="subjectThumbImg" alt="主体缩略图">
             <button class="thumb-remove" id="subjectRemove" aria-label="移除主体图" title="移除">×</button>
+          </div>
+          <div class="mode-row">
+            <span class="mode-label">抠图模式</span>
+            <label class="mode-switch">
+              <input type="checkbox" id="modeSwitch">
+              <span class="mode-slider"></span>
+            </label>
+            <span class="mode-val" id="modeLabel">高清版（慢）</span>
           </div>
         </div>
 
@@ -176,7 +196,7 @@
       <h2>使用提示</h2>
       <ul>
         <li>「主体」图会被自动抠图（人像分割），抠出的主角可以拖动、缩放，摆出「冲出格子」的感觉。</li>
-        <li>抠图模型约 5MB，首次使用需联网下载一次，之后缓存到浏览器，不会上传你的图片。</li>
+        <li>抠图模型约 6MB，首次使用需联网下载一次（有进度条），之后缓存到浏览器，不会上传你的图片。</li>
         <li>主体建议用人物清晰、背景简单的照片，抠图效果更好。</li>
         <li>背景格至少放 2 张图更有拼贴感；空格会留白。</li>
         <li>所有处理都在浏览器本地完成，图片不会上传，可放心使用。</li>
