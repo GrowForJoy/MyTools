@@ -4,77 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>冲出朋友圈九宫格 · 实用工具箱</title>
-  <meta name="description" content="冲出朋友圈九宫格：上传一张主体图自动抠图「冲」出格子，再上传 2~9 张图拼成九宫格背景，支持拖动摆放与缩放主体，合成一张适合发朋友圈的图片。全程浏览器本地处理，不上传。">
+  <meta name="description" content="纯前端制作「冲出朋友圈九宫格」创意图：上传 2~9 张图片，选定一张作为主角自动抠图并突破九宫格边界，可拖拽缩放、手动精修，一键合成下载。所有处理在浏览器本地完成。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
-  <style>
-    /* 本工具专有样式 */
-    .bg-grid{display:grid;grid-template-columns:repeat(3,1fr);box-sizing:border-box;}
-    .bg-grid .slot{aspect-ratio:1;position:relative;background:#fff;overflow:hidden;border-radius:0;}
-    .bg-grid .slot.drag-over{outline:2px solid var(--accent);outline-offset:-2px;}
-    .slot-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;}
-    .slot-empty{position:absolute;inset:5%;border:1.5px dashed var(--line);border-radius:6px;user-select:none;pointer-events:none;}
-    .preview-edge{position:absolute;inset:0;border:1px solid var(--line);border-radius:10px;pointer-events:none;z-index:5;}
-
-    .preview-wrap{position:relative;width:100%;max-width:440px;margin:0 auto;}
-    .preview-box{position:relative;width:100%;aspect-ratio:1;background:#fff;border:none;border-radius:10px;overflow:hidden;touch-action:none;box-shadow:0 14px 38px rgba(0,0,0,.16);}
-    #subjectLayer{position:absolute;top:0;left:0;transform-origin:0 0;cursor:grab;touch-action:none;user-select:none;border-radius:2px;will-change:transform;}
-    #subjectLayer.dragging{cursor:grabbing;}
-
-    .upload-grid{display:grid;grid-template-columns:1fr;gap:14px;}
-    @media (min-width:720px){.upload-grid{grid-template-columns:1.05fr 1fr;}}
-    .upload-cell{display:flex;flex-direction:column;gap:8px;}
-    .cell-title{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink-2);font-size:14px;}
-    .req-badge{font-size:11px;font-weight:600;color:#fff;background:var(--accent);padding:1px 6px;border-radius:20px;}
-
-    .dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:90px;border:1.5px dashed var(--line);border-radius:10px;padding:14px;cursor:pointer;color:var(--ink-2);text-align:center;transition:.18s;}
-    .dropzone:hover,.dropzone:focus-visible{border-color:var(--accent);color:var(--accent);}
-    .dz-title{font-size:14px;font-weight:600;}
-    .dz-hint{font-size:12px;color:var(--ink-3);}
-    .dropzone.small{min-height:64px;}
-
-    .subject-thumb{position:relative;width:100%;aspect-ratio:1;max-width:150px;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
-    .subject-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
-    .thumb-remove{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:1;cursor:pointer;}
-
-    .bg-tray{display:flex;flex-wrap:wrap;gap:8px;min-height:56px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:var(--surface-1);}
-    .tray-thumb{position:relative;width:52px;height:52px;border-radius:8px;overflow:hidden;cursor:grab;border:1px solid var(--line);background:var(--surface-2);flex:0 0 auto;}
-    .tray-thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none;}
-    .tray-thumb.selected{outline:2px solid var(--accent);outline-offset:1px;}
-    .tray-thumb.dragging{opacity:.4;}
-    .tray-thumb.placed img{opacity:.45;}
-    .placed-tag{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);color:#fff;font-size:10px;line-height:1.6;text-align:center;pointer-events:none;}
-    .tray-hint{font-size:12px;color:var(--ink-3);}
-
-    .drag-ghost{position:fixed;left:0;top:0;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 22px rgba(0,0,0,.25);pointer-events:none;z-index:99;background:#fff;}
-    .drag-ghost img{width:100%;height:100%;object-fit:cover;}
-
-    .edit-bar{display:flex;align-items:center;flex-wrap:wrap;gap:14px;padding:12px 2px;}
-    .edit-bar label{font-size:13px;color:var(--ink-3);white-space:nowrap;}
-    .range-row-sm{display:flex;align-items:center;gap:8px;flex:1;min-width:140px;}
-    .range-row-sm input[type=range]{flex:1;}
-    .cta-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-    .seg-status{font-size:12px;color:var(--ink-3);}
-
-    .mode-row{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:var(--ink-2);}
-    .mode-label{font-weight:600;}
-    .mode-val{font-size:12px;color:var(--ink-3);min-width:80px;}
-    .mode-switch{position:relative;display:inline-block;width:42px;height:22px;flex-shrink:0;}
-    .mode-switch input{opacity:0;width:0;height:0;}
-    .mode-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--surface-2);border:1px solid var(--line);transition:.2s;border-radius:22px;}
-    .mode-slider:before{position:absolute;content:"";height:16px;width:16px;left:2px;bottom:2px;background:white;transition:.2s;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.2);}
-    .mode-switch input:checked + .mode-slider{background:var(--accent);border-color:var(--accent);}
-    .mode-switch input:checked + .mode-slider:before{transform:translateX(20px);}
-
-    .dl-progress{width:100%;margin-top:6px;}
-    .dl-bar{width:100%;height:8px;border-radius:20px;background:var(--surface-2);overflow:hidden;}
-    .dl-fill{width:0%;height:100%;border-radius:20px;background:var(--accent);transition:width .3s;}
-    .dl-fill.indeterminate{animation:dlpulse 1.2s ease-in-out infinite;}
-    @keyframes dlpulse{0%{width:18%}50%{width:45%}100%{width:18%}}
-    .dl-label{margin-top:4px;font-size:12px;color:var(--ink-3);}
-    .seg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
-  </style>
 </head>
-<body>
+<body class="break-grid">
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="../index.html" aria-label="返回首页">
@@ -106,104 +42,129 @@
         返回工具列表
       </a>
       <h1>冲出朋友圈九宫格</h1>
-      <p class="sub">上传一张「主体」图自动抠出人物跳出格子，再上传 2~9 张图拼成九宫格背景，可拖动摆放与缩放主体，最后合成一张适合发朋友圈的图片。全程浏览器本地处理，不上传。</p>
+      <p class="sub">上传 2~9 张图片，选定一张作为「主角」，主角将被抠图并突破九宫格边界，可拖拽缩放、手动精修，满意后一键合成下载。全程浏览器本地处理，不上传。</p>
     </div>
 
-    <section class="tool-panel">
-      <!-- 上传区 -->
-      <div class="upload-grid">
-        <div class="upload-cell">
-          <div class="cell-title"><span class="req-badge">主体</span> 上传要「冲出格子」的图片 <span class="dz-hint">建议人物清晰、背景简单效果好</span></div>
-          <div class="dropzone" id="subjectDrop" role="button" tabindex="0" aria-label="上传主体图片">
-            <p class="dz-title">点击选择主体图片</p>
-            <p class="dz-hint">JPG / PNG / WebP，单张</p>
-            <input type="file" id="subjectInput" accept="image/*" hidden>
-          </div>
-          <div class="subject-thumb hidden" id="subjectThumb">
-            <img id="subjectThumbImg" alt="主体缩略图">
-            <button class="thumb-remove" id="subjectRemove" aria-label="移除主体图" title="移除">×</button>
-          </div>
-          <div class="mode-row">
-            <span class="mode-label">抠图引擎</span>
-            <span class="mode-val" id="modeLabel">内置模型 · 本地处理</span>
-          </div>
-        </div>
-
-        <div class="upload-cell">
-          <div class="cell-title">九宫格背景图 <span class="dz-hint" id="bgCount">已选 0 张</span></div>
-          <div class="dropzone small" id="bgDrop" role="button" tabindex="0" aria-label="上传九宫格背景图">
-            <p class="dz-title">点击选择 2~9 张背景图</p>
-            <p class="dz-hint">可多选；自动按顺序填入格子，之后可拖动摆放</p>
-            <input type="file" id="bgInput" accept="image/*" multiple hidden>
-          </div>
-          <div class="tray-hint">把下方缩略图拖到右边格子里，即可摆位置</div>
-          <div class="bg-tray" id="bgTray"></div>
-        </div>
+    <!-- 上传区 -->
+    <section class="card" aria-label="图片上传">
+      <div class="card__head">
+        <h2><span class="num">01</span> 上传图片</h2>
+        <span class="counter" id="counter">0 / 9</span>
       </div>
+      <p class="hint">点击空格「+」添加，或将图片拖入下方网格。点击已上传图片可设为「主角」。</p>
 
-      <!-- 编辑区 -->
-      <div class="options hidden" id="editor">
-        <div class="edit-bar">
-          <label>主体大小</label>
-          <div class="range-row-sm">
-            <input type="range" id="subjectSize" min="30" max="260" value="160">
-            <span class="range-val" id="subjectSizeVal" style="width:44px">160%</span>
-          </div>
-          <button class="btn btn-ghost btn-sm" id="centerBtn" type="button">主体居中</button>
-          <span class="seg-status" id="segStatus"></span>
-        </div>
-        <div class="edit-bar">
-          <label>羽化边缘</label>
-          <div class="range-row-sm">
-            <input type="range" id="featherRange" min="0" max="6" step="0.2" value="2.0">
-            <span class="range-val" id="featherVal" style="width:56px">羽化 2</span>
-          </div>
-          <button class="btn btn-ghost btn-sm" id="featherNoneBtn" type="button">不羽化</button>
-        </div>
+      <div class="grid" id="uploadGrid" title="点击 + 上传，或拖入图片"></div>
 
-        <div class="preview-wrap">
-          <div class="preview-box" id="previewBox">
-            <div class="preview-edge" aria-hidden="true"></div>
-            <div class="bg-grid" id="bgGrid"></div>
-            <img id="subjectLayer" alt="主体抠图" draggable="false" hidden>
-          </div>
-        </div>
-        <p class="tray-hint" style="text-align:center;margin-top:8px">拖动背景框可换位；按住主体小人可拖动，滚轮 / 滑块可缩放</p>
-      </div>
-
-      <!-- 操作 -->
-      <div class="cta-row">
-        <button class="btn btn-primary" id="downloadBtn" disabled>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-          </svg>
-          生成并下载
+      <div class="toolbar">
+        <button class="btn btn--primary" id="generateBtn" disabled>
+          <span>生成效果图</span>
         </button>
-        <button class="btn btn-ghost" id="againBtn">重新来过</button>
-        <span class="status-text hidden" id="status">
-          <span class="spinner" aria-hidden="true"></span>
-          <span id="statusText">正在处理…</span>
-        </span>
+        <button class="btn btn--ghost" id="settingsToggle" aria-expanded="false">设置</button>
+        <button class="btn btn--ghost" id="clearBtn">清空</button>
       </div>
-      <div class="dl-progress hidden" id="dlProgress">
-        <div class="dl-bar"><div class="dl-fill" id="dlFill"></div></div>
-        <span class="dl-label" id="dlLabel"></span>
+
+      <div class="settings" id="settings" hidden>
+        <label class="field">
+          <span>间隙颜色</span>
+          <input type="color" id="gapColor" value="#ffffff" />
+        </label>
+        <label class="field">
+          <span>输出尺寸</span>
+          <select id="outputSize">
+            <option value="720">720</option>
+            <option value="1080" selected>1080</option>
+            <option value="1440">1440</option>
+            <option value="2160">2160</option>
+          </select>
+        </label>
+        <label class="field field--check">
+          <input type="checkbox" id="tryAi" checked />
+          <span>优先使用 AI 抠图（失败改用边缘抠图）</span>
+        </label>
       </div>
-      <div class="seg-actions hidden" id="segActions">
-        <button class="btn btn-ghost btn-sm" id="useFullBtn" type="button">用整张主体（不抠图）继续</button>
-        <button class="btn btn-ghost btn-sm hidden" id="retryCutBtn" type="button">重新试一次抠图</button>
+    </section>
+
+    <!-- 编辑区 -->
+    <section class="card" id="editorCard" hidden aria-label="效果编辑">
+      <div class="card__head">
+        <h2><span class="num">02</span> 编辑效果</h2>
+        <span class="badge" id="methodBadge">抠图方式</span>
       </div>
-      <p class="mobile-save-hint hidden" id="mobileHint">生成为一张 1080×1080 方图，适合直接发朋友圈；若浏览器无法自动下载，可长按生成结果保存。</p>
+
+      <div class="preview-wrap">
+        <div class="preview" id="preview">
+          <div class="grid-layer" id="gridLayer"></div>
+          <canvas class="cutout-layer" id="cutoutLayer"></canvas>
+          <div class="crop-box" id="cropBox" hidden></div>
+        </div>
+        <p class="hint hint--center">拖拽主角移动位置 · 滚轮缩放 · 开启「手动擦除」可精修边缘</p>
+      </div>
+
+      <div class="controls">
+        <div class="controls__group">
+          <label class="ctrl">
+            <span>缩放</span>
+            <input type="range" id="scaleRange" min="0.3" max="4" step="0.01" value="2" />
+            <output id="scaleOut">2.00</output>
+          </label>
+          <button class="btn btn--sm" id="resetPosBtn">重置位置</button>
+        </div>
+
+        <div class="controls__group">
+          <label class="ctrl">
+            <span>间隙</span>
+            <input type="range" id="gapRange" min="0" max="40" value="6" />
+            <output id="gapOut">6</output>
+          </label>
+          <label class="ctrl">
+            <span>留白</span>
+            <input type="range" id="topPadRange" min="0" max="540" value="0" step="2" />
+            <output id="topPadOut">0</output>
+          </label>
+        </div>
+
+        <div class="controls__group">
+          <span class="anchor__label">位置</span>
+          <div class="anchor" id="anchorGrid">
+            <button type="button" data-align="tl" aria-label="左上"></button>
+            <button type="button" data-align="tc" aria-label="上中"></button>
+            <button type="button" data-align="tr" aria-label="右上"></button>
+            <button type="button" data-align="cl" aria-label="左中"></button>
+            <button type="button" data-align="cc" aria-label="居中"></button>
+            <button type="button" data-align="cr" aria-label="右中"></button>
+            <button type="button" data-align="bl" aria-label="左下"></button>
+            <button type="button" data-align="bc" aria-label="下中" class="is-active"></button>
+            <button type="button" data-align="br" aria-label="右下"></button>
+          </div>
+        </div>
+
+        <div class="controls__group controls__brush" id="brushGroup">
+          <button class="btn btn--sm btn--toggle" id="brushToggle" aria-pressed="false">手动擦除</button>
+          <button class="btn btn--sm btn--toggle" id="cropToggle" aria-pressed="false">矩形裁剪</button>
+          <label class="ctrl ctrl--inline" id="brushSizeWrap" hidden>
+            <span>笔刷</span>
+            <input type="range" id="brushSize" min="6" max="120" value="28" />
+            <output id="brushSizeOut">28</output>
+          </label>
+          <button class="btn btn--sm" id="undoBtn" disabled>撤销</button>
+          <button class="btn btn--sm" id="restoreBtn" disabled>恢复抠图</button>
+        </div>
+
+        <div class="controls__group controls__main">
+          <button class="btn btn--ghost" id="backBtn">返回上传</button>
+          <button class="btn btn--primary" id="downloadBtn">下载图片</button>
+        </div>
+      </div>
     </section>
 
     <section class="tips">
       <h2>使用提示</h2>
       <ul>
-        <li>「主体」图会被自动抠图（人像分割），抠出的主角可以拖动、缩放，摆出「冲出格子」的感觉。</li>
-        <li>抠图用 TensorFlow.js 在 CPU 上本地处理，无需 GPU/硬件加速，也不联网、不会卡在初始化。</li>
-        <li>主体建议用人物清晰、背景简单的照片，抠图效果更好。</li>
-        <li>背景格至少放 2 张图更有拼贴感；空格会留白。</li>
-        <li>所有处理都在浏览器本地完成，图片不会上传，可放心使用。</li>
+        <li>上传 2~9 张图片，点选一张作为「主角」，主角会被抠图并突破九宫格边界。</li>
+        <li>抠图优先用 AI（ISNet），失败会自动回退为「边缘抠图」，也可手动擦除精修边缘。</li>
+        <li>AI 模型首次使用需联网下载（约 10MB 起），下载后浏览器会缓存，之后更快。</li>
+        <li>主角可拖拽移动、滚轮缩放，还可调整「间隙」「留白」与九宫格在画布内的位置。</li>
+        <li>所有处理都在浏览器本地完成，图片不会上传到服务器，可放心使用。</li>
       </ul>
     </section>
   </main>
@@ -211,10 +172,23 @@
   <footer class="site-footer">
     <p class="footer-note">实用工具箱 · 所有工具均在浏览器本地运行</p>
     <p>图片不会上传到任何服务器，可放心使用</p>
-    <p>本站内容 · 由个人开发 · 禁止未经授权复制、盗用、二次复刻</p>
+    <p>本站内容 · 禁止未经授权复制、盗用、二次复刻</p>
   </footer>
 
+  <!-- 进度遮罩 -->
+  <div class="overlay" id="overlay" hidden>
+    <div class="overlay__box">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="overlay__text" id="overlayText">正在处理…</p>
+      <div class="progress" id="progressBar"><div class="progress__fill" id="progressFill"></div></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <input type="file" id="fileInput" accept="image/*" multiple hidden />
   <script src="../js/main.js"></script>
-  <script src="../js/break-grid.js?v=20260821-v5"></script>
+  <script type="module" src="../js/break-grid/app.js"></script>
 </body>
 </html>
