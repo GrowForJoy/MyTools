@@ -683,12 +683,27 @@ function download() {
   ctx.drawImage(layer, -bw / 2, -bh / 2, bw, bh);
   ctx.restore();
 
-  // 触发下载
-  const a = document.createElement("a");
-  a.download = `冲出九宫格_${timestamp()}.png`;
-  a.href = canvas.toDataURL("image/png");
-  a.click();
-  toast("已生成并下载图片");
+  // 触发保存
+  const name = `冲出九宫格_${timestamp()}.png`;
+  const isTouch = "ontouchstart" in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+  canvas.toBlob((blob) => {
+    if (!blob) { toast("生成图片失败，请重试"); return; }
+    // 手机/平板：走系统分享面板，可直接「存储到照片」相册
+    if (isTouch && navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: "image/png" })] })) {
+      navigator.share({ files: [new File([blob], name, { type: "image/png" })], title: "冲出朋友圈九宫格" }).catch(() => {});
+      return;
+    }
+    // 桌面端 / 不支持分享：直接下载
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    toast("已生成并保存图片");
+  }, "image/png");
 }
 
 // ---------- 初始化 ----------
