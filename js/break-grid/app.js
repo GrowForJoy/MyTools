@@ -416,11 +416,12 @@ function layout() {
   els.gridLayer.style.height = `${gridD}px`;
   els.gridLayer.style.gap = `${gapD}px`;
 
-  // 九宫格背景格子（缩小后）；主角尺寸用满画布格子，不受留白影响
+  // 背景格子（缩小后）；主角尺寸基于「不含留白」的满格，调整留白不影响主角缩放，
+  // 但主角中心仍落在缩小后的格子中心，从而可向留白区冲出
   const cellD = (gridD - 2 * gapD) / 3;
-  const cellDFull = (D - 2 * gapD) / 3;
+  const fullCellD = (D - 2 * gapD) / 3;
   const { w: nw, h: nh } = state.cutoutNat;
-  const sc = Math.min(cellDFull / nw, cellDFull / nh); // contain，基于满格子
+  const sc = Math.min(fullCellD / nw, fullCellD / nh); // contain，基于满格
   const bw = nw * sc, bh = nh * sc;
 
   const col = state.mainIndex % 3;
@@ -694,15 +695,22 @@ function download() {
     const x = gridLeft + col * (cellS + gap);
     const y = gridTop + row * (cellS + gap);
     if (i < state.images.length) {
+      // 与预览一致：每格内裁剪，避免竖版/横版图片跨过格子边界盖掉上下或左右的间距
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, cellS, cellS);
+      ctx.clip();
       coverDraw(ctx, state.images[i].el, x, y, cellS, cellS);
+      ctx.restore();
     }
   }
 
-  // 主角抠图层（与预览变换一致）：尺寸基于满画布格子，不受留白影响
+  // 主角抠图层（与预览变换一致）：尺寸基于「不含留白」的满格，调整留白不影响主角缩放；
+  // 但主角中心仍落在缩小后的格子中心，从而可向留白区冲出
   const layer = els.cutoutLayer;
   const { w: nw, h: nh } = state.cutoutNat;
-  const cellSFull = (S - 2 * gap) / 3;
-  const sc = Math.min(cellSFull / nw, cellSFull / nh);
+  const fullCellS = (S - 2 * gap) / 3;
+  const sc = Math.min(fullCellS / nw, fullCellS / nh); // contain，基于满格
   const bw = nw * sc, bh = nh * sc;
   const col = state.mainIndex % 3, row = Math.floor(state.mainIndex / 3);
   const cellX0 = gridLeft + col * (cellS + gap);
