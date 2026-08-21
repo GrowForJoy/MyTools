@@ -39,6 +39,7 @@ const els = {
   generateBtn: $("generateBtn"),
   settingsToggle: $("settingsToggle"),
   settings: $("settings"),
+  swapToggle: $("swapToggle"),
   clearBtn: $("clearBtn"),
   gapRange: $("gapRange"), gapOut: $("gapOut"),
   topPadRange: $("topPadRange"), topPadOut: $("topPadOut"),
@@ -130,8 +131,9 @@ function renderUploadGrid() {
   const items = [];
   state.images.forEach((it, i) => {
     const isMain = i === state.mainIndex;
+    const isSel = i === swapSel;
     items.push(`
-      <div class="slot filled ${isMain ? "slot--main" : ""}" data-index="${i}" draggable="true" title="点击设为主角，拖拽调整顺序">
+      <div class="slot filled ${isMain ? "slot--main" : ""} ${isSel ? "is-selected" : ""}" data-index="${i}" draggable="true" title="点击设为主角，拖拽或「交换位置」调整顺序">
         <img src="${it.dataURL}" alt="${it.name || ""}" />
         ${isMain ? "" : `<span class="slot__index">${i + 1}</span>`}
         <button class="slot__rm" data-rm="${i}" title="移除" type="button">×</button>
@@ -174,10 +176,36 @@ function handleSlotClick(e) {
   if (add) { els.fileInput.click(); return; }
   const slot = e.target.closest("[data-index]");
   if (slot) {
-    state.mainIndex = Number(slot.dataset.index);
+    const idx = Number(slot.dataset.index);
+    // 交换位置模式：点击按【选中 → 目标】组合交换
+    if (swapActive) {
+      if (swapSel < 0) {
+        swapSel = idx;
+        renderUploadGrid();
+        toast("已选中一张，再点另一张图交换位置");
+      } else if (swapSel === idx) {
+        swapSel = -1;
+        renderUploadGrid();
+      } else {
+        swap(idx, swapSel);
+        swapSel = -1;
+        renderUploadGrid();
+        toast("已交换位置");
+      }
+      return;
+    }
+    state.mainIndex = idx;
     renderUploadGrid();
     if (!els.editorCard.hidden) toast("主角已更换，点击「生成效果图」重新抠图");
   }
+}
+
+// 交换 images 中 a 与 b 的位置，并同步主角下标
+function swap(a, b) {
+  const arr = state.images;
+  const t = arr[a]; arr[a] = arr[b]; arr[b] = t;
+  if (state.mainIndex === a) state.mainIndex = b;
+  else if (state.mainIndex === b) state.mainIndex = a;
 }
 
 function removeImage(idx) {
@@ -186,6 +214,10 @@ function removeImage(idx) {
   else if (idx < state.mainIndex) state.mainIndex -= 1;
   renderUploadGrid();
 }
+
+// 点击交换位置模式
+let swapActive = false;
+let swapSel = -1;
 
 // 拖拽排序（在网格内交换）
 let dragFrom = -1;
@@ -716,6 +748,13 @@ function init() {
   bindDragReorder();
   bindFileDrop();
   bindSettings();
+  els.swapToggle.addEventListener("click", () => {
+    swapActive = !swapActive;
+    swapSel = -1;
+    els.swapToggle.setAttribute("aria-pressed", String(swapActive));
+    renderUploadGrid();
+    toast(swapActive ? "交换位置已开启：点两张图即可交换" : "已退出交换位置");
+  });
   bindEditor();
   els.generateBtn.addEventListener("click", generate);
 

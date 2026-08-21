@@ -1447,6 +1447,24 @@ a { color: var(--accent); }
 }
 .break-grid .slot.filled:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5); }
 .break-grid .slot.filled:hover .slot__rm { opacity: 1; }
+.break-grid .slot.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 8px 22px -10px color-mix(in srgb, var(--accent) 55%, transparent);
+  transform: translateY(-3px) scale(1.04);
+}
+.break-grid .slot.is-selected::before {
+  content: "已选中";
+  position: absolute;
+  left: 6px; bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 5px;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
 .break-grid .slot--main {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 1px var(--accent-2), 0 8px 22px -10px color-mix(in srgb, var(--accent) 55%, transparent);
